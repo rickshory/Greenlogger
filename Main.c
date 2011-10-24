@@ -1601,8 +1601,8 @@ bit 0 STSEL: Stop Bit Selection bit
  //  if changed, comment out high-speed equates and enable std speed equates in HardwareProfile.h
 // U1BRG = Baud9600;
 // U1BRG = Baud19200;
-// U1BRG = Baud38400;
- U1BRG = Baud115200;
+ U1BRG = Baud38400;
+// U1BRG = Baud115200;
 // 
 /* temporarily disable for testing
 */
