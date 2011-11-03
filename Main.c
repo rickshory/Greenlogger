@@ -25,7 +25,6 @@ void assureSDCardIsOn (void);
 void assureSDCardIsOff (void);
 void initSPI (void);
 void initUSART (void);
-void initBTModule(void);
 void findAccelerometer (void);
 void initAccelerometer (void);
 void readAccelerometer (void);
@@ -286,7 +285,6 @@ unsigned long secsSince1Jan2000, timeLastSet = 0;
 int main (void) {
     initMain();
     initUSART();
-    initBTModule(); // initialized Bluetooth module
     stateFlags.isRoused = 1;
     stateFlags.isLeveling = 0; // default until set
     stateFlags_2.turnSDCardOffBetweenDataWrites = 1; // default while testing
@@ -446,6 +444,7 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
         while (*USART1_outputbuffer_head != *USART1_outputbuffer_tail) ; // allow any output to finish
         // if following cause lockup, fix
         _U1MD = 1; // disable UART module 1
+        BT_PWR_CTL = 1; // turn off power to Bluetooth module, high disables FET
         //
         //_I2C2MD = 1; // disable I2C module 2
        Sleep();
@@ -1122,7 +1121,7 @@ void initMain (void)
 
   Port A
  bit 0, physical pin 2
- bit 1, physical pin 3, power supply for I2C bus
+ bit 1, physical pin 3
  bit 2, physical pin 9
  bit 3, physical pin 10
  bit 4, physical pin 12, RTCC xtal SOSCO, unavaliable for I/O
@@ -1166,6 +1165,9 @@ void initMain (void)
     SD_CS_TRIS = 0;
 
     SD_POWER = 1; // turn SD card power on
+
+    BT_PWR_CTL_TRIS = 0; // output
+    BT_PWR_CTL = 1; // high keeps FET off, disables power to Bluetooth module
 
 // _LATB2 = 0;
 // _LATB3 = 0;
@@ -1534,6 +1536,7 @@ void initSPI (void) {
 * initialize the USART
 *****************************************/
 void initUSART (void) {
+    BT_PWR_CTL = 0; // turn on power to Bluetooth module, low activates FET
     PPSUnLock; // unlock peripheral pin select registers
     // map USART functions to specific pins
 //    CONFIG_U1RTS_TO_RP(6); // map RTS to pin RP6, physical pin 15 --UNUSED--
@@ -1686,28 +1689,6 @@ bit 0 URXDA: Receive Buffer Data Available bit (read-only)
 
 
 } // initUSART
-
-/*****************************************
-* initialize the attached Bluetooth module
-*  Preconditon: USART initialized
-*  If no BT module is attached, programming will go to any COM port attached
-*   may be cryptic, but no problem
-* 
-*****************************************/
-void initBTModule(void) {  // initialize the Bluetooth module
-    for (unsignedIntTmp = ~0; (unsignedIntTmp); unsignedIntTmp--) ; // wait a while
-    // turn on power to unit
-    // unit can draw up to 30mA, which is > the 25mA each pin can supply, so
-    //  try 2 pins in parallel; may change to 1 pin driving load switch
-    // use Port A, bit 2 (physical pin 9) and bit 3 (physical pin 10)
-    // do 2 pins simultaneously 
-    TRISA &= 0b1111111111110011;  // make outputs, set the state of these 2 pins to 0
-    PORTA |= 0b0000000000001100;  // drive high, set level of these 2 pins to 1
-    for (unsignedIntTmp = ~0; (unsignedIntTmp); unsignedIntTmp--) ; // wait a while
-    
-
-    ;
-} // end of initBTModule
 
 /*****************************************
 * verify that string in text buffer is a valid date/time

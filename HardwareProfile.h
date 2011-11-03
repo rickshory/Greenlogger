@@ -195,6 +195,10 @@ The breadboarded prototypes, P(-1) and P0, can change and are updated
             #define SD_POWER_TRIS TRISBbits.TRISB12
             #define SD_POWER _RB12
 
+        // Bluetooth module control pins
+            #define BT_PWR_CTL_TRIS _TRISA1
+            #define BT_PWR_CTL _RA1
+
         #endif // BOARD_VERSION_02
 
 
@@ -236,8 +240,8 @@ The breadboarded prototypes, P(-1) and P0, can change and are updated
 
 // I2C clock rates assume 4MHz oscillator
 
-#define I2C_POWER_TRIS _TRISA1
-#define I2C_POWER _RA1
+//#define I2C_POWER_TRIS _TRISA1
+//#define I2C_POWER _RA1
 
 // SDA2 physical pin 6
 #define I2C_SDA_TRIS _TRISB2
