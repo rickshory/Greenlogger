@@ -4,7 +4,7 @@
  * Dependencies:    FSIO.h, PinMapping.h
  * Processor:       PIC24F
  * Compiler:        C30
- * Company:         EcoTronics
+ * Company:         rickshory.com
  * Version:         1.0.0
  *
  *
@@ -43,6 +43,7 @@ int isValidTimestamp(char* p);
 #define MAX_IRRAD_COUNT 65535
 #define CELL_VOLTAGE_THRESHOLD_WRITE_SD_CARD 370
 #define CELL_VOLTAGE_THRESHOLD_READ_IRRADIANCE 350
+#define SECS_BT_HOLDS_POWER_AFTER_SLEEP 90
 
 int DEVID, DEVREV;
 unsigned long bbIrradThresholdDark = 2000 * 16;
@@ -87,8 +88,8 @@ struct { // finer details of machine state
  unsigned isReadingSensors:1; // has been awakened by RTCC interrupt and is reading data
  unsigned isRoused:1; // triggered by external interrupt, and re-triggered by any activity while awake
  unsigned reRoused:1; // re-triggered while awake, used to reset timeout
+ unsigned keepBT_on:1; // keep power on the the Bluetooth module, even after rouse timeout
  unsigned isLeveling:1; // diagnostics show accelerometer output rather than light sensors, used for leveling the system
- unsigned isSendingData:1; // in the process of sending logged data
  unsigned accelerometerIsThere:1; // set if system finds ADXL345 on I2C bus
 } stateFlags;
 
@@ -101,7 +102,7 @@ struct {
 // 00=low,    *(322/11)  to correct (29.2927, ~29, 0.93% error)
 // 01=medium, *(322/81)  to correct (3.9753, ~4, 0.62% error)
 // 10=high,   *(322/322) to correct (1)
- unsigned unused3:1; // not used yet
+ unsigned isSendingData:1; // in the process of sending logged data
  unsigned unused2:1; // not used yet
  unsigned unused1:1; // not used yet
 } stateFlags_2;
@@ -166,7 +167,7 @@ unsigned int unsignedIntTmp;
 char timeStampBuffer[] = "\r\n2010-12-21 10:47:13";
 
 int byteVal;
-unsigned long secsSince1Jan2000, timeLastSet = 0;
+unsigned long secsSince1Jan2000, timeLastSet = 0, timeToTurnOffBT;
 
     _CONFIG1(JTAGEN_OFF & GCP_OFF & GWRP_OFF & COE_OFF & ICS_PGx1 & FWDTEN_OFF)
 /*  
@@ -311,7 +312,7 @@ bit 15 NSTDIS: Interrupt Nesting Disable bit
  0 = Interrupt nesting is enabled
  other bits flag various errors, or are unimplemented
 //}*/
- INTCON1 = 0; // enable interrupt nesting, clear other flags
+    INTCON1 = 0; // enable interrupt nesting, clear other flags
 /*
 //{
  INTCON2: INTERRUPT CONTROL REGISTER 2
@@ -332,22 +333,22 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
  1 = Interrupt on negative edge
  0 = Interrupt on positive edge (default)
 //} */
- INTCON2 = 0;
+    INTCON2 = 0;
 
- _RTCIF = 0; // clear RTCC interrupt flag
- _RTCIE = 1; // enable RTCC real time clock calendar interrupt
+    _RTCIF = 0; // clear RTCC interrupt flag
+    _RTCIE = 1; // enable RTCC real time clock calendar interrupt
 
- _INT1IF = 0; // clear INT1 interrupt flag 
- _INT1IE = 1; // Enable INT1 external interrupt
+    _INT1IF = 0; // clear INT1 interrupt flag 
+    _INT1IE = 1; // Enable INT1 external interrupt
 
  // init the processor priority level
- _IPL = 0; // not strictly necessary to do; 0 is the default value, set at power on
+    _IPL = 0; // not strictly necessary to do; 0 is the default value, set at power on
  
- flags1.useSDcard = 1; // can toggle this with the O (on/off) command
- flags1.sleepBetweenReadings = 0; // can toggle this with the S (on/off) command
- flags1.isDark = 0; // default is not Dark, set irradiance below threshold
- flags1.wasDark = 0; // previous Dark state
- flags1.writeDataHeaders = 1; // log column headers on 1st SD card write
+    flags1.useSDcard = 1; // can toggle this with the O (on/off) command
+    flags1.sleepBetweenReadings = 0; // can toggle this with the S (on/off) command
+    flags1.isDark = 0; // default is not Dark, set irradiance below threshold
+    flags1.wasDark = 0; // previous Dark state
+    flags1.writeDataHeaders = 1; // log column headers on 1st SD card write
  
     stateFlags.reRoused = 1; // start Roused for the default timeout before going to sleep
     machState = Idle;
@@ -361,7 +362,7 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
 	        outputStringToUSART(str);
 	    }   
 
-        setSDCardPowerControl();
+//        setSDCardPowerControl();
         while (machState == Idle) { // RTCC interrupt will break out of this
             setSDCardPowerControl();
             if (stateFlags.reRoused) {
@@ -391,7 +392,6 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
                 }
             }
 
-//
         // do following on first call to SD card
         //if (_SPI1MD) // SPI module 1 was disabled to save power during sleep
         //     _SPI1MD = 0; // remove disable from SPI module 1
@@ -408,8 +408,8 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
 //  else 
 //   flags1.sleepBetweenReadings = 0;
   
-//  if (flags1.isDark != flags1.wasDark) // if state has changed; change Alarm interval
-  if (1) // currently, don't look at any previous state
+//        if (flags1.isDark != flags1.wasDark) // if state has changed; change Alarm interval
+        if (1) { // currently, don't look at any previous state
   /*
   bit 15: 1 = enable Alarm
   bit 14: 1 = enable Chime, so alarm will roll over and continue after Repeat counts down to 0
@@ -417,46 +417,48 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
   bit 7-0 ARPT<7:0>: Alarm Repeat Counter, 11111111 = Alarm will repeat 255 more times
   see comments in setupAlarm fn for more details
   */
-  {
-   if (flags1.isDark) // if it has changed to Dark, set long intervals
+            if ((flags1.isDark) && (BT_PWR_CTL)) 
+            // if it has changed to Dark, set long intervals
+            // except don't do this until Bluetooth is off, or could hang with BT on
+            //   wasting power for hours; BT FET control is active low
 /*   bit 13-10 AMASK<3:0>: Alarm Mask Configuration bits, 0101 = Every hour
-                 111111 bit positions
-                 5432109876543210     */
-    setupAlarm(0b1101011111111111);
-   else // Dark has ended, change to short intervals
+                             111111 bit positions
+                             5432109876543210     */
+                setupAlarm(0b1101011111111111);
+            else // Dark has ended, change to short intervals
 /*   bit 13-10 AMASK<3:0>: Alarm Mask Configuration bits, 0010 = Every 10 seconds
-                 111111 bit positions
-                 5432109876543210     */
-    setupAlarm(0b1100101111111111);
+                             111111 bit positions
+                             5432109876543210     */
+                setupAlarm(0b1100101111111111);
     
    // update flag
-   if (flags1.isDark)
-    flags1.wasDark = 1;
-   else 
-    flags1.wasDark = 0;
-  } // end if (isDark != wasDark)
+            if (flags1.isDark)
+                flags1.wasDark = 1;
+            else 
+                flags1.wasDark = 0;
+        } // end if (isDark != wasDark)
 /**/
 //    if (flags1.sleepBetweenReadings) { // go to sleep
 
-    if (!stateFlags.isRoused) { // go to sleep
-        outputStringToUSART("\r\n   system timout, going to sleep\r\n");
-        assureSDCardIsOff();
-        while (*USART1_outputbuffer_head != *USART1_outputbuffer_tail) ; // allow any output to finish
-        // if following cause lockup, fix
-        _U1MD = 1; // disable UART module 1
-        BT_PWR_CTL = 1; // turn off power to Bluetooth module, high disables FET
-        //
-        //_I2C2MD = 1; // disable I2C module 2
-       Sleep();
-       __asm__ ("nop");
-    }
+        if (!stateFlags.isRoused) { // go to sleep
+            outputStringToUSART("\r\n   system timout, going to sleep\r\n");
+            assureSDCardIsOff();
+            while (*USART1_outputbuffer_head != *USART1_outputbuffer_tail) ; // allow any output to finish
+            // if following cause lockup, fix
+            _U1MD = 1; // disable UART module 1
+            if (secsSince1Jan2000 > timeToTurnOffBT)
+                BT_PWR_CTL = 1; // turn off power to Bluetooth module, high disables FET
+            //
+            //_I2C2MD = 1; // disable I2C module 2
+           Sleep();
+           __asm__ ("nop");
+        }
   
- } // end (machState == Idle)
+     } // end of (machState == Idle)
  // when (machState != Idle) execution passes on from this point
 
  // when RTCC occurs, changes machState to GettingTimestamp
-    while (1) // various test may break early, 
-    {
+    while (1) { // various tests may break early, 
         setSDCardPowerControl();
         // monitor cell voltage, to decide whether there is enough power to proceed
         cellVoltage = getCellVoltage();
@@ -474,6 +476,11 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
             outputStringToUSART(str);
             machState = Idle;
             break;
+        }
+        if (stateFlags.isRoused) { 
+            // if roused, and Bluetooth is on, flag to keep BT on awhile after normal rouse timeout
+            // createTimestamp sets secsSince1Jan2000
+            timeToTurnOffBT = secsSince1Jan2000 + SECS_BT_HOLDS_POWER_AFTER_SLEEP;
         }
 //        len = sprintf(str, " char 17=%u, 17&0x01=%u, char 19=%u \n\r", timeStampBuffer[17], ((char)timeStampBuffer[17] & 0x01), timeStampBuffer[19]);
 //        outputStringToUSART(str);
@@ -740,7 +747,7 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
     } // end of getting data readings
     ;
  } // main program loop
-} // fn Main
+} // end of Main
 
 /*****************************************
 * set the RTCC Alarm register
@@ -806,7 +813,7 @@ void setupAlarm (int N)
 
  N = safely_set_ALCFGRPT(N); // setup Alarm register in an assember fn
  _RTCWREN = 0; // relock RTCC registers, to protect values from accidental change
-}
+} // end of setupAlarm
 
 /*****************************************
 * write N characters from the passed char
@@ -844,7 +851,7 @@ int writeCharsToFile (char* St, int N) {
     if (FSfclose (pointer))
         return NoClose; // could not close file 
     return NoProblem;
-}
+} // end of writeCharsToFile
 
 
 /*****************************************
@@ -927,7 +934,8 @@ void tellFileWriteError (int err)
    break;
   } 
  } // switch err
-} // tellFileWriteError
+} // end of tellFileWriteError
+
 /*****************************************
 * copy characters from the passed null-terminated
 *  string to the USART output buffer and
@@ -958,7 +966,7 @@ void outputStringToUSART (char* St) {
         _U1TXIE = 1; // enable Tx interrupt; interrupt will then occur as soon as Transmit 
         //  buffer has moved contents into Transmit Shift Register
     }
-} 
+} // end of outputStringToUSART
 
 
 /*****************************************
@@ -1092,7 +1100,7 @@ void checkForCommands (void) {
              }
          } // done parsing character
     } // while (1)
-} // checkForCommands
+} // end of checkForCommands
 
 /*****************************************
 * set up app specifics such as IO, peripheral pin mapping, etc.
@@ -1250,7 +1258,7 @@ _RB7 = 0; // default low, minimize power
     _INT1IF = 0; // clear INT1 interrupt flag 
     _INT1IE = 1; // enable external interrupt on pin 14, INT1
 
-} // initMain
+} // end of initMain
 
 /*****************************************
 * make sure the SD card is ON
@@ -1418,7 +1426,7 @@ void findAccelerometer (void) {
         len = sprintf(str, " Accelerometer not found: 0x%x\n\r", r);
         outputStringToUSART(str);
     }
-}
+} // end of findAccelerometer
 
 /*****************************************
 * initialize Accellerometer, for system leveling and to detect taps
@@ -1687,8 +1695,7 @@ bit 0 URXDA: Receive Buffer Data Available bit (read-only)
  //_U1TXIE = 1; // enable USART1 Transmit interrupt
  _U1RXIE = 1; // enable USART1 Receive interrupt
 
-
-} // initUSART
+} // end of initUSART
 
 /*****************************************
 * verify that string in text buffer is a valid date/time
@@ -1791,7 +1798,7 @@ int isValidTimestamp(char* p)
         return 0;
     // passed all tests
     return 1;
-}
+} // end of isValidTimestamp
 
 /*****************************************
 * set device date/time from date and time as text in buffer
@@ -1858,17 +1865,17 @@ void setTimeFromCharBuffer (char *p)
  i |= (*p++ & 0xf); // ones-of-second
  RTCVAL = i; // set minute and second
  _RTCWREN = 0; // relock RTCC registers, to protect values from accidental change
-} // setTimeFromCharBuffer
+} // end of setTimeFromCharBuffer
 
 /*****************************************
 * create text formatted in timeStampBuffer from device date and time settings
-*  also set up dirNameBuffer and fileNameBuffer based on date/time
+* set up dirNameBuffer and fileNameBuffer based on date/time
+* generates secsSince1Jan2000, available to use for long time periods
 *****************************************/
 void createTimestamp (void)
 {
  char Yr, Mo, Da, Hr, Mn, Sc, nybVal, i;
  char numDaysInMonth[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  // create timestamp
 
 //  timeStampBuffer[2] = '2'; // device RTCC only runs from 2000 to 2099
 //  timeStampBuffer[3] = '0';
@@ -1970,8 +1977,6 @@ void createTimestamp (void)
   secsSince1Jan2000 = (((((secsSince1Jan2000 * 24) + Hr) * 60) + Mn) * 60) + Sc;
 
 } // end of createTimestamp
-
-//void getDataReadings(void);
 
 /*************************************************************************
   Function:
@@ -2144,7 +2149,7 @@ void __attribute__ ((interrupt, no_auto_psv)) _RTCCInterrupt(void)
 {
  machState = GettingTimestamp;
  _RTCIF = 0; //  clear RTCC interrupt flag
-} // _InterruptVector _RTCCInterrupt
+} // end of _InterruptVector _RTCCInterrupt
 
 
 /*****************************************
@@ -2156,7 +2161,7 @@ void __attribute__ ((interrupt, no_auto_psv)) _INT1Interrupt(void)
     // the device that caused it, outside this ISR, in the main program loop
     stateFlags.reRoused = 1; // re-Roused, or Roused for the first time
     _INT1IF = 0; //  clear INT1 interrupt flag
-} // _InterruptVector _INT1Interrupt
+} // end of _InterruptVector _INT1Interrupt
 
 
 /*****************************************
@@ -2169,7 +2174,7 @@ void __attribute__ ((interrupt, no_auto_psv)) _T1Interrupt(void)
     stateFlags.isRoused = 0; // can go back to sleep
     _T1IF = 0; // clear T1 interrupt flag
 
-} // _InterruptVector _T1Interrupt
+} // end of _InterruptVector _T1Interrupt
 
 
 
@@ -2235,7 +2240,7 @@ void __attribute__ ((interrupt, no_auto_psv)) _U1TXInterrupt(void)
    USART1_outputbuffer_tail = (char*)(&USART1_outputbuffer[0]); // rollover to beginning if necessary
   _U1TXIF = 0; // clear interrupt flag
  }
-} // _U1TXInterrupt
+} // end of _U1TXInterrupt
 
 
 */
