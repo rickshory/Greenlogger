@@ -712,11 +712,11 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
 
 //    I2C2CONbits.I2CEN = 0; // disable I2C module
 // diagnostic for testing
-//len = sprintf(str, "\r\n %u\t%u\r\n ", irrReadings[0].irrWholeWord, irrReadings[0].irrMultiplier);
+//len = sprintf(str, "\r\n %u,%u\r\n ", irrReadings[0].irrWholeWord, irrReadings[0].irrMultiplier);
 //outputStringToUSART(str);
 
     // prepare data string
-    len = sprintf(str, "\t%lu\t%lu\t%lu\t%lu\t%u",
+    len = sprintf(str, ",%lu,%lu,%lu,%lu,%u",
           (unsigned long)((unsigned long)irrReadings[0].irrWholeWord * (unsigned long)irrReadings[0].irrMultiplier),
           (unsigned long)((unsigned long)irrReadings[1].irrWholeWord * (unsigned long)irrReadings[1].irrMultiplier),
           (unsigned long)((unsigned long)irrReadings[2].irrWholeWord * (unsigned long)irrReadings[2].irrMultiplier),
@@ -2077,7 +2077,7 @@ void assureDataHeadersLogged(void)
 {
     if (flags1.writeDataHeaders)
     {
-        len = sprintf(str, "\n\r\n\rTime\tbbDn\tirDn\tbbUp\tirUp\tBatt\n\r");
+        len = sprintf(str, "\n\r\n\rTime,bbDn,irDn,bbUp,irUp,Batt\n\r");
         err = writeCharsToFile (str, len);
         if (err)
             tellFileWriteError (err);
