@@ -33,6 +33,7 @@ void setTimeFromCharBuffer (char *c);
 void createTimestamp (void);
 int getCellVoltage(void);
 void assureDataHeadersLogged(void);
+void logAnyJSON(void);
 void getDataReadings(void);
 void startTimer1ToRunThisManySeconds(unsigned int numSecondsToRun);
 void setSDCardPowerControl(void);
@@ -161,11 +162,11 @@ char intervalShort[] = "00:00:10"; // default ten seconds
 char intervalLong[] = "00:10:00"; // default one hour
 int len, err = 0;
 char str[128]; // generic space for strings to be output
+char strJSON[128]; // string for JSON data
 int intTmp;
 unsigned int unsignedIntTmp;
 // default date/time is winter solstice 2010
 char timeStampBuffer[] = "\r\n2010-12-21 10:47:13";
-
 int byteVal;
 unsigned long secsSince1Jan2000, timeLastSet = 0, timeToTurnOffBT;
 
@@ -284,6 +285,7 @@ unsigned long secsSince1Jan2000, timeLastSet = 0, timeToTurnOffBT;
 }// */
     
 int main (void) {
+    strJSON[0] = '\0';
     initMain();
     initUSART();
     stateFlags.isRoused = 1;
@@ -492,6 +494,7 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
             stateFlags_2.isDataWriteTime = 0;
         }
         if (stateFlags_2.isDataWriteTime) {
+            logAnyJSON();
             assureDataHeadersLogged(); // writes headers on reset, time change, or midnight rollover
             err = writeCharsToFile (timeStampBuffer, 21);
             if (err) {
@@ -1001,12 +1004,17 @@ void checkForCommands (void) {
                          break;
                     }    
                     outputStringToUSART("\r\n Time changed from ");
+                    strcpy(strJSON, "\n\r{\"timechange\":{\"from\":\"");
                     createTimestamp();
+                    strcat(strJSON, timeStampBuffer + 2);
                     outputStringToUSART(timeStampBuffer + 2);
                     setTimeFromCharBuffer(commandBuffer + 3);
+                    strcat(strJSON, "\",\"to\":\"");
                     outputStringToUSART(" to ");
                     createTimestamp();
+                    strcat(strJSON, timeStampBuffer + 2);
                     outputStringToUSART(timeStampBuffer + 2);
+                    strcat(strJSON, "\",\"by\":\"hand\"}}\n\r");
                     outputStringToUSART("\r\n");
                     flags1.writeDataHeaders = 1; // log data column headers on next SD card write
                     stateFlags.timeHasBeenSet = 1; // presumably is now the correct time
@@ -2085,6 +2093,43 @@ void assureDataHeadersLogged(void)
             flags1.writeDataHeaders = 0;
     }
 } // end of assureDataHeadersLogged
+
+/*************************************************************************
+  Function:
+    void logAnyJSON(void)
+  Summary:
+    attempt to write any JSON data to SD card
+  Conditions:
+    Only proceeds if NOT (strJSON[0] == '\0')
+  Input:
+    None
+  Return Values:
+    None
+  Side Effects:
+    uses global variables err, len, str
+    if succesful write, sets strJSON[0] = '\0'
+  Description:
+    should be JSON data on time change (both manual and automatic),
+    periodic level check from accelerometer,
+    possibly other diagnostics
+  Remarks:
+    None
+  *************************************************************************/
+
+void logAnyJSON(void)
+{
+    if (!(strJSON[0] == '\0'))
+    {
+        len = sprintf(str, strJSON);
+        err = writeCharsToFile (str, len);
+        if (err)
+            tellFileWriteError (err);
+        if (err == NoProblem) // flag successful
+            strJSON[0] = '\0';
+    }
+} // end of logAnyJSON
+
+
 
 void startTimer1ToRunThisManySeconds(unsigned int numSecondsToRun) {
     len = sprintf(str, "\n\r Timer1 set for %u seconds \n\r", numSecondsToRun);
