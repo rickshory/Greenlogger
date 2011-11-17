@@ -46,7 +46,7 @@ int isValidTimestamp(char* p);
 #define CELL_VOLTAGE_THRESHOLD_READ_IRRADIANCE 350
 
 int DEVID, DEVREV;
-unsigned long bbIrradThresholdDark = 2000 * 16;
+unsigned long bbIrradThresholdDark = 500;
 int machState;
 extern int safely_set_ALCFGRPT(int);
 extern volatile int safe_ALCFGRPT; // we don't access this from C yet
@@ -719,7 +719,7 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
     outputStringToUSART(str);
     // if broadband reference is less than threshold, flag that it is dark enough
     //   to go to sleep, to save power overnight
-    if ((unsigned long)((unsigned long)irrReadings[2].irrWholeWord * (unsigned long)irrReadings[2].irrMultiplier) < 
+    if ((unsigned long)((unsigned long)irrReadings[0].irrWholeWord * (unsigned long)irrReadings[2].irrMultiplier) < 
              bbIrradThresholdDark)
         flags1.isDark = 1;
     else
