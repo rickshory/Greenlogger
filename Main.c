@@ -38,6 +38,7 @@ void getDataReadings(void);
 void startTimer1ToRunThisManySeconds(unsigned int numSecondsToRun);
 void setSDCardPowerControl(void);
 int isValidTimestamp(char* p);
+int isValidTimezone(char* p);
 
 #define USART1_Buffer_Length 0x800
 #define commandBufferLen 30
@@ -47,7 +48,7 @@ int isValidTimestamp(char* p);
 #define SECS_BT_HOLDS_POWER_AFTER_SLEEP 90
 
 int DEVID, DEVREV;
-unsigned long bbIrradThresholdDark = 2000 * 16;
+unsigned long bbIrradThresholdDark = 500;
 int machState;
 extern int safely_set_ALCFGRPT(int);
 extern volatile int safe_ALCFGRPT; // we don't access this from C yet
@@ -167,6 +168,9 @@ int intTmp;
 unsigned int unsignedIntTmp;
 // default date/time is winter solstice 2010
 char timeStampBuffer[] = "\r\n2010-12-21 10:47:13";
+// default time zone is Pacific Standard Time, -08 hours from Universal Time aka Greenwich Mean Time
+char timeZoneOffset = -8;
+char timeZoneBuffer[] = "-08";
 int byteVal;
 unsigned long secsSince1Jan2000, timeLastSet = 0, timeToTurnOffBT;
 
@@ -726,9 +730,9 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
           (unsigned long)((unsigned long)irrReadings[3].irrWholeWord * (unsigned long)irrReadings[3].irrMultiplier),
            cellVoltage);
     outputStringToUSART(str);
-    // if broadband reference is less than threshold, flag that it is dark enough
+    // if broadband reflected is less than threshold, flag that it is dark enough
     //   to go to sleep, to save power overnight
-    if ((unsigned long)((unsigned long)irrReadings[2].irrWholeWord * (unsigned long)irrReadings[2].irrMultiplier) < 
+    if ((unsigned long)((unsigned long)irrReadings[0].irrWholeWord * (unsigned long)irrReadings[0].irrMultiplier) < 
              bbIrradThresholdDark)
         flags1.isDark = 1;
     else
@@ -1003,18 +1007,27 @@ void checkForCommands (void) {
                          outputStringToUSART("\r\n Invalid timestamp\r\n");
                          break;
                     }    
+                    if (!isValidTimezone(commandBuffer + 20)) {
+                         outputStringToUSART("\r\n Invalid hour offset\r\n");
+                         break;
+                    }    
                     outputStringToUSART("\r\n Time changed from ");
-                    strcpy(strJSON, "\n\r{\"timechange\":{\"from\":\"");
+                    strcpy(strJSON, "\r\n{\"timechange\":{\"from\":\"");
                     createTimestamp();
                     strcat(strJSON, timeStampBuffer + 2);
                     outputStringToUSART(timeStampBuffer + 2);
+                    strcat(strJSON, timeZoneBuffer);
+                    outputStringToUSART(timeZoneBuffer);
                     setTimeFromCharBuffer(commandBuffer + 3);
+                    strncpy(timeZoneBuffer, commandBuffer + 20, 3);
                     strcat(strJSON, "\",\"to\":\"");
                     outputStringToUSART(" to ");
                     createTimestamp();
                     strcat(strJSON, timeStampBuffer + 2);
                     outputStringToUSART(timeStampBuffer + 2);
-                    strcat(strJSON, "\",\"by\":\"hand\"}}\n\r");
+                    strcat(strJSON, timeZoneBuffer);
+                    outputStringToUSART(timeZoneBuffer);
+                    strcat(strJSON, "\",\"by\":\"hand\"}}\r\n");
                     outputStringToUSART("\r\n");
                     flags1.writeDataHeaders = 1; // log data column headers on next SD card write
                     stateFlags.timeHasBeenSet = 1; // presumably is now the correct time
@@ -1808,6 +1821,39 @@ int isValidTimestamp(char* p)
     return 1;
 } // end of isValidTimestamp
 
+
+/*****************************************
+* verify that string in text buffer is a valid timezone offset
+*  Input: char pointer
+*  Output: int, used as boolean; 1 = true, 0 = false
+*  Preconditon: hour offset starting at pointer, in strict format:
+*  +00 ('+' means plus or minus character, '00' is zero to tweleve with leading zero if <10)
+*  use this fn before trying to set the time, if hour offset is needed
+* 
+*****************************************/
+int isValidTimezone(char* p)
+{
+    int i, h;
+    // examples: "-10", "+03"
+    // sign
+    i = *p++;
+    if (!((i == '-') || (i == '+'))) // correct sign
+        return 0;
+
+    i = *p++;
+    if ((i < '0') || (i > '1')) // tens of hour
+        return 0;
+    h = 10 * (i & 0xf); // strip all but low nybble to convert to BCD
+    i = *p++;
+    if ((i < '0') || (i > '9')) // ones of hour
+        return 0;
+    h = h + (i & 0xf); // strip all but low nybble to convert to BCD
+    if (h > 12) 
+        return 0;
+    // passed all tests
+    return 1;
+} // end of isValidTimezone
+
 /*****************************************
 * set device date/time from date and time as text in buffer
 *  Input: char pointer
@@ -2085,7 +2131,7 @@ void assureDataHeadersLogged(void)
 {
     if (flags1.writeDataHeaders)
     {
-        len = sprintf(str, "\n\r\n\rTime,bbDn,irDn,bbUp,irUp,Batt\n\r");
+        len = sprintf(str, "\n\r\n\rTime UT%s,bbDn,irDn,bbUp,irUp,Batt\n\r", timeZoneBuffer);
         err = writeCharsToFile (str, len);
         if (err)
             tellFileWriteError (err);
@@ -2128,8 +2174,6 @@ void logAnyJSON(void)
             strJSON[0] = '\0';
     }
 } // end of logAnyJSON
-
-
 
 void startTimer1ToRunThisManySeconds(unsigned int numSecondsToRun) {
     len = sprintf(str, "\n\r Timer1 set for %u seconds \n\r", numSecondsToRun);
