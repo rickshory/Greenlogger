@@ -196,6 +196,7 @@ The breadboarded prototypes, P(-1) and P0, can change and are updated
             #define SD_POWER _RB12
 
         // Bluetooth module control pins
+            // BT_PWR_CTL = port A bit 1 = physical pin 3
             #define BT_PWR_CTL_TRIS _TRISA1
             #define BT_PWR_CTL _RA1
 
