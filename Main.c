@@ -423,10 +423,10 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
   bit 7-0 ARPT<7:0>: Alarm Repeat Counter, 11111111 = Alarm will repeat 255 more times
   see comments in setupAlarm fn for more details
   */
-            if ((flags1.isDark) && (BT_PWR_CTL)) 
+            if ((flags1.isDark) && (!BT_PWR_CTL)) 
             // if it has changed to Dark, set long intervals
             // except don't do this until Bluetooth is off, or could hang with BT on
-            //   wasting power for hours; BT FET control is active low
+            //   wasting power for hours; BT booster control is shutdown low
 /*   bit 13-10 AMASK<3:0>: Alarm Mask Configuration bits, 0101 = Every hour
                              111111 bit positions
                              5432109876543210     */
@@ -453,7 +453,7 @@ bit 0 INT0EP: External Interrupt 0 Edge Detect Polarity Select bit
             // if following cause lockup, fix
             _U1MD = 1; // disable UART module 1
             if (secsSince1Jan2000 > timeToTurnOffBT)
-                BT_PWR_CTL = 1; // turn off power to Bluetooth module, high disables FET
+                BT_PWR_CTL = 0; // turn off power to Bluetooth module, low disables booster module
             //
             //_I2C2MD = 1; // disable I2C module 2
            Sleep();
@@ -1196,7 +1196,7 @@ void initMain (void)
     SD_POWER = 1; // turn SD card power on
 
     BT_PWR_CTL_TRIS = 0; // output
-    BT_PWR_CTL = 1; // high keeps FET off, disables power to Bluetooth module
+    BT_PWR_CTL = 0; // low keeps booster off, disables power to Bluetooth module
 
 // _LATB2 = 0;
 // _LATB3 = 0;
@@ -1565,7 +1565,7 @@ void initSPI (void) {
 * initialize the USART
 *****************************************/
 void initUSART (void) {
-    BT_PWR_CTL = 0; // turn on power to Bluetooth module, low activates FET
+    BT_PWR_CTL = 1; // turn on power to Bluetooth module, high enables voltage booster
     PPSUnLock; // unlock peripheral pin select registers
     // map USART functions to specific pins
 //    CONFIG_U1RTS_TO_RP(6); // map RTS to pin RP6, physical pin 15 --UNUSED--
