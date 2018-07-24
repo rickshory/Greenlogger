@@ -1,6 +1,6 @@
-Precursor to project "AVRGreenlogger". Development continues in that project.
+Precursor to repository **AVRGreenlogger**. Development continues in that project.
 
-Notes up to the end point of this project:
+Notes up to the end of this project:
 
 This is the code to run an embedded system.
 
