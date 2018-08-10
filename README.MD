@@ -1,4 +1,6 @@
-Precursor to repository **AVRGreenlogger**. Development continues in that project.
+This repository was a false start. The main Greenlogger development is in **AVRGreenlogger**.
+
+-----
 
 Notes up to the end of this project:
 
